@@ -11,9 +11,11 @@ const config = {
   height: 450,
   backgroundColor: '#000',
   parent: 'app',
+  pixelArt: true,
   physics: {
     default: 'arcade',
     arcade: { gravity: { y: 0 }, debug: false }
+    
   },
   scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
   // ADD UIScene TO THE LIST
