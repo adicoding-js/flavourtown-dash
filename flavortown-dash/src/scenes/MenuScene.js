@@ -25,12 +25,47 @@ export class MenuScene extends Scene {
         this.selectedSprite = 'default';
         this.sprites = ['default', 'fire', 'ice', 'gold', 'neon'];
 
-        // Social links - placeholders for custom icons
-        // Set iconPath to your custom image path once uploaded
+        // Social links
         this.socials = [
-            { id: 'github', icon: '🐙', iconPath: null, url: 'https://github.com/adicoding-js' },
-            { id: 'slack', icon: '💬', iconPath: null, url: 'https://slack.com' }
+            { id: 'github', iconPath: '/assets/github.png', url: 'https://github.com/adicoding-js' },
+            { id: 'slack', iconPath: '/assets/slack.png', url: 'https://hackclub.enterprise.slack.com/team/U0A1XMKQU6S' }
         ];
+
+        // Pre-load social icons
+        this.socialImages = {};
+        this.socials.forEach(social => {
+            if (social.iconPath) {
+                const img = new Image();
+                img.src = social.iconPath;
+                this.socialImages[social.id] = img;
+            }
+        });
+
+        // File input for skin upload
+        this.fileInput = document.createElement('input');
+        this.fileInput.type = 'file';
+        this.fileInput.accept = 'image/*';
+        this.fileInput.style.display = 'none';
+        document.body.appendChild(this.fileInput);
+
+        this.fileInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    const dataUrl = event.target.result;
+                    try {
+                        localStorage.setItem('flavortown_custom_skin', dataUrl);
+                        localStorage.setItem('flavortown_sprite', 'custom');
+                        this.selectedSprite = 'custom';
+                    } catch (err) {
+                        console.error('Failed to save skin (too large?):', err);
+                        alert('Image too large to save! Try a smaller image.');
+                    }
+                };
+                reader.readAsDataURL(file);
+            }
+        });
     }
 
     async init(data = {}) {
@@ -111,6 +146,13 @@ export class MenuScene extends Scene {
             }
         }
 
+        // Custom/Upload option (next to others)
+        const customX = modalX + 40 + this.sprites.length * (optionSize + gap);
+        const customY = modalY + 100;
+        if (this.isPointInRect(mousePos.x, mousePos.y, { x: customX, y: customY, width: optionSize, height: optionSize })) {
+            this.hoveredButton = 'sprite_custom_upload';
+        }
+
         // Close button
         const closeBtn = { x: modalX + 150, y: modalY + 220, width: 100, height: 40 };
         if (this.isPointInRect(mousePos.x, mousePos.y, closeBtn)) {
@@ -120,8 +162,13 @@ export class MenuScene extends Scene {
         // Handle clicks
         if (input.justPressed) {
             if (this.hoveredButton?.startsWith('sprite_')) {
-                this.selectedSprite = this.hoveredButton.replace('sprite_', '');
-                localStorage.setItem('flavortown_sprite', this.selectedSprite);
+                if (this.hoveredButton === 'sprite_custom_upload') {
+                    // Trigger file upload
+                    this.fileInput.click();
+                } else {
+                    this.selectedSprite = this.hoveredButton.replace('sprite_', '');
+                    localStorage.setItem('flavortown_sprite', this.selectedSprite);
+                }
             } else if (this.hoveredButton === 'close_modal') {
                 this.showSpriteModal = false;
             }
@@ -452,19 +499,22 @@ export class MenuScene extends Scene {
         ctx.lineWidth = 2;
         ctx.stroke();
 
-        // If custom icon path is set, draw image placeholder
-        if (social.iconPath) {
-            // TODO: Load and draw custom icon image
-            // const img = this.game.assetManager.get(social.id + '_icon');
-            // ctx.drawImage(img, -size/3, -size/3, size*0.66, size*0.66);
+        // Draw custom icon image if loaded
+        if (this.socialImages[social.id]) {
+            ctx.save();
+            ctx.beginPath();
+            ctx.arc(0, 0, size / 2, 0, Math.PI * 2);
+            ctx.clip();
+            ctx.drawImage(this.socialImages[social.id], -size / 2, -size / 2, size, size);
+            ctx.restore();
+        } else {
+            // Fallback to emoji icon
+            ctx.font = `${size * 0.5}px sans-serif`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillStyle = '#ffffff';
+            ctx.fillText(social.icon || '?', 0, 0);
         }
-
-        // Fallback to emoji icon
-        ctx.font = `${size * 0.5}px sans-serif`;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillStyle = '#ffffff';
-        ctx.fillText(social.icon, 0, 0);
 
         ctx.restore();
     }
@@ -545,6 +595,30 @@ export class MenuScene extends Scene {
             ctx.textAlign = 'center';
             ctx.fillText(sprite.toUpperCase(), x + optionSize / 2, optionY + optionSize + 15);
         }
+
+        // Custom/Upload Option
+        const customX = startX + this.sprites.length * (optionSize + gap);
+        const isCustomSelected = this.selectedSprite === 'custom';
+        const isCustomHovered = this.hoveredButton === 'sprite_custom_upload';
+
+        ctx.fillStyle = isCustomSelected ? CONFIG.COLORS.GD_GREEN : (isCustomHovered ? CONFIG.COLORS.GD_PURPLE : 'rgba(0,0,0,0.3)');
+        ctx.beginPath();
+        ctx.roundRect(customX, optionY, optionSize, optionSize, 10);
+        ctx.fill();
+
+        ctx.strokeStyle = isCustomSelected ? CONFIG.COLORS.GD_GREEN_LIGHT : 'rgba(255,255,255,0.3)';
+        ctx.lineWidth = 3;
+        ctx.stroke();
+
+        // Upload Icon
+        ctx.font = '24px sans-serif';
+        ctx.fillStyle = '#ffffff';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('📤', customX + optionSize / 2, optionY + optionSize / 2);
+
+        ctx.font = '10px Outfit, sans-serif';
+        ctx.fillText('UPLOAD', customX + optionSize / 2, optionY + optionSize + 15);
 
         // Close button
         const closeX = modalX + modalWidth / 2 - 50;

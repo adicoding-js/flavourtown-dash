@@ -14,7 +14,7 @@ export class EditorScene extends Scene {
         super(game);
 
         this.levelManager = new LevelManager();
-        this.ground = new Ground();
+        this.ground = new Ground(this.game);
 
         // Level data
         this.levelName = 'Untitled Level';
@@ -231,10 +231,22 @@ export class EditorScene extends Scene {
 
         if (this.selectedTool === 'delete') {
             // Delete object at position
+            const hitSize = this.gridSize * 1.5; // Larger hit area
             this.objects = this.objects.filter(obj => {
                 const objX = obj.x;
-                const objY = obj.y || (CONFIG.PLAYER.GROUND_Y - 50);
-                return !(Math.abs(objX - snappedX) < this.gridSize && Math.abs(objY - snappedY) < this.gridSize);
+                const objY = obj.y || (CONFIG.PLAYER.GROUND_Y - 50); // Fallback if Y missing
+
+                // Check if snapped position is close to object center
+                // Note: objects stored with top-left coordinates typically?
+                // Let's use simple distance check to the click point (worldX, worldY)
+                // instead of the snapped point to be more intuitive for deletion.
+
+                const centerX = objX + CONFIG.EDITOR.GRID_SIZE / 2;
+                const centerY = objY + CONFIG.EDITOR.GRID_SIZE / 2;
+
+                const dist = Math.sqrt((centerX - worldX) ** 2 + (centerY - worldY) ** 2);
+
+                return dist > hitSize / 2; // Keep object if distance is greater than radius
             });
             this.saveState();
         } else {
@@ -324,10 +336,11 @@ export class EditorScene extends Scene {
         this.ground.render(ctx, this.cameraX - 100, CONFIG.CANVAS.WIDTH + 200);
 
         // Objects
+        const groundY = this.ground.getSurfaceY();
         for (const objData of this.objects) {
-            const obj = createGameObject(objData);
+            const obj = createGameObject(objData, groundY);
             if (obj && obj.x > this.cameraX - 100 && obj.x < this.cameraX + CONFIG.CANVAS.WIDTH + 100) {
-                obj.render(ctx);
+                obj.render(ctx, this.game.assetManager);
             }
         }
         ctx.restore();

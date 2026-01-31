@@ -36,10 +36,39 @@ export class Player {
         this.color = CONFIG.COLORS.PRIMARY;
         this.trailColor = CONFIG.COLORS.PRIMARY;
 
+        // Load sprite preference
+        const spritePref = localStorage.getItem('flavortown_sprite');
+        this.customImage = null;
+
+        if (spritePref === 'custom') {
+            const customData = localStorage.getItem('flavortown_custom_skin');
+            if (customData) {
+                const img = new Image();
+                img.src = customData;
+                this.customImage = img;
+            }
+        } else if (spritePref) {
+            // Set colors for built-in skins
+            const spriteColors = {
+                'fire': '#ff4400',
+                'ice': '#00ccff',
+                'gold': CONFIG.COLORS.GD_YELLOW,
+                'neon': '#ff00ff'
+            };
+            if (spriteColors[spritePref]) {
+                this.color = spriteColors[spritePref];
+                this.trailColor = this.color;
+            }
+        }
+
         // Trail
         this.trail = [];
         this.trailMaxLength = CONFIG.PLAYER.TRAIL_LENGTH;
         this.trailTimer = 0;
+
+        // Jump state
+        this.jumpCount = 0;
+        this.jumpBufferTimer = 0;
 
         // Animation
         this.scale = 1;
@@ -72,6 +101,7 @@ export class Player {
             this.y = groundLimit;
             this.vy = 0;
             this.isGrounded = true;
+            this.jumpCount = 0;
 
             // Cube rotation snaps to 90 degrees when landing
             if (this.mode === GAME_MODES.CUBE) {
@@ -106,9 +136,23 @@ export class Player {
             this.vy = CONFIG.PHYSICS.TERMINAL_VELOCITY;
         }
 
-        // Jump on input (only when grounded)
-        if (input.isJumpJustPressed() && this.isGrounded) {
-            this.jump(particleManager);
+        // Update jump buffer
+        if (input.isJumpJustPressed()) {
+            this.jumpBufferTimer = 0.1; // 100ms buffer
+        }
+        if (this.jumpBufferTimer > 0) {
+            this.jumpBufferTimer -= dt;
+        }
+
+        // Jump logic (grounded or double jump)
+        if (this.jumpBufferTimer > 0) {
+            if (this.isGrounded) {
+                this.jump(particleManager);
+                this.jumpBufferTimer = 0; // Consume buffer
+            } else if (this.jumpCount < 2) {
+                this.jump(particleManager);
+                this.jumpBufferTimer = 0; // Consume buffer
+            }
         }
 
         // Rotate while in air
@@ -142,6 +186,7 @@ export class Player {
     jump(particleManager) {
         this.vy = CONFIG.PHYSICS.JUMP_FORCE;
         this.isGrounded = false;
+        this.jumpCount++;
 
         // Squash effect
         this.squash = { x: 1.3, y: 0.7 };
@@ -285,6 +330,8 @@ export class Player {
         this.isGrounded = true;
         this.isDead = false;
         this.hasWon = false;
+        this.jumpCount = 0;
+        this.jumpBufferTimer = 0;
         this.trail = [];
         this.squash = { x: 1, y: 1 };
     }
@@ -327,7 +374,16 @@ export class Player {
         ctx.scale(this.squash.x, this.squash.y);
 
         // Draw sprite or fallback
-        if (sprite) {
+        if (this.mode === GAME_MODES.CUBE && this.customImage) {
+            // Draw custom skin
+            ctx.drawImage(
+                this.customImage,
+                -this.width / 2,
+                -this.height / 2,
+                this.width,
+                this.height
+            );
+        } else if (sprite) {
             ctx.drawImage(
                 sprite,
                 -this.width / 2,
