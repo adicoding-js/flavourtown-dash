@@ -1,6 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="description"
+    content="Flavortown Dash - A rhythm-based platformer game inspired by Geometry Dash. Jump, fly, and dash through challenging levels synced to music!">
+  <meta name="theme-color" content="#0f0f23">
+
+  <!-- Prevent iOS zoom on input -->
+  <meta name="format-detection" content="telephone=no">
+
+  <title>Flavortown Dash</title>
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="/styles/main.css">
+</head>
+
 <body>
-  <div id="app"></div>
-  <input type="file" id="level-upload" style="display: none;" accept=".json" />
-  
+  <!-- Loading Screen -->
+  <div id="loading">
+    <div class="loading-content">
+      <div class="loading-title">FLAVORTOWN DASH</div>
+      <div class="loading-spinner"></div>
+      <div class="loading-text">Loading...</div>
+    </div>
+  </div>
+
+  <!-- Game Container -->
+  <div id="game-container">
+    <canvas id="game-canvas"></canvas>
+  </div>
+
+  <!-- Audio unlock overlay (for mobile) -->
+  <div id="audio-unlock" style="display: none;">
+    <div class="audio-unlock-content">
+      <div class="audio-unlock-icon">🔊</div>
+      <div class="audio-unlock-text">Tap to enable audio</div>
+    </div>
+  </div>
+
   <script type="module" src="/src/main.js"></script>
 </body>
+
+</html>
