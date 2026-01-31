@@ -2,10 +2,6 @@
 
 A cool fun Geometry Dash clone built for **flavortown.hackclub.com**. Experience rhythm-based platforming action directly in your browser with zero delays.
 
-![Flavortown Dash Menu Screenshot](/public/assets/gamemenu.png)
-![Flavortown Dash Game Screenshot](/public/assets/game.png)
-![Flavortown Dash Editor Screenshot](/public/assets/editor.png)
-
 ## 🎮 Features
 
 - **Core Gameplay**: Fully immersive Cube and Ship physics.
@@ -56,4 +52,4 @@ Built with ❤️ for flavourtown. PRs and suggestions are welcome!
 
 ---
 
-*Made for [Flavortown](https://flavourtown.hackclub.com/)* 🏴‍☠️
+*Made for [Flavortown](https://flavourtown.hackclub.com/)* 👨‍🍳🍳
