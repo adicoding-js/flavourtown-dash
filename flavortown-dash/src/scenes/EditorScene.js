@@ -1,455 +1,423 @@
 /**
  * Flavortown Dash - Editor Scene
- * Create and edit custom levels
+ * GD-style level editor
  */
 
 import { Scene } from './Scene.js';
-import { CONFIG, SCENES, OBJECT_TYPES, GAME_MODES } from '../config.js';
-import { Camera } from '../engine/Camera.js';
-import { Ground } from '../objects/Ground.js';
-import { createGameObject } from '../objects/Obstacles.js';
+import { CONFIG, SCENES, OBJECT_TYPES } from '../config.js';
 import { LevelManager } from '../managers/LevelManager.js';
+import { createGameObject } from '../objects/Obstacles.js';
+import { Ground } from '../objects/Ground.js';
 
 export class EditorScene extends Scene {
     constructor(game) {
         super(game);
 
         this.levelManager = new LevelManager();
-        this.camera = new Camera(game);
-        this.ground = null;
+        this.ground = new Ground();
 
-        // Current level being edited
-        this.level = null;
+        // Level data
+        this.levelName = 'Untitled Level';
         this.objects = [];
+        this.currentLevelId = null;
+
+        // Camera
+        this.cameraX = 0;
+        this.isPanning = false;
+        this.lastPanX = 0;
 
         // Editor state
-        this.selectedTool = OBJECT_TYPES.SPIKE;
-        this.isPlacing = false;
+        this.selectedTool = 'spike';
+        this.hoveredButton = null;
         this.gridSize = CONFIG.EDITOR.GRID_SIZE;
 
-        // Camera controls
-        this.isDragging = false;
-        this.lastMouseX = 0;
-
-        // UI
-        this.toolbarHeight = 120;
-        this.hoveredButton = null;
-
-        // Tools available
+        // Tools
         this.tools = [
-            { id: OBJECT_TYPES.SPIKE, name: 'Spike', icon: '▲', color: CONFIG.COLORS.DANGER },
-            { id: OBJECT_TYPES.BLOCK, name: 'Block', icon: '■', color: CONFIG.COLORS.GROUND_TOP },
-            { id: OBJECT_TYPES.PORTAL_SHIP, name: 'Ship Portal', icon: '✈', color: CONFIG.COLORS.SECONDARY },
-            { id: OBJECT_TYPES.PORTAL_CUBE, name: 'Cube Portal', icon: '◆', color: CONFIG.COLORS.PRIMARY },
-            { id: OBJECT_TYPES.FINISH, name: 'Finish', icon: '🏁', color: CONFIG.COLORS.SUCCESS },
-            { id: 'delete', name: 'Delete', icon: '✕', color: '#ff3333' },
-            { id: 'move', name: 'Move', icon: '✥', color: '#888888' }
+            { id: 'spike', icon: '△', label: 'Spike' },
+            { id: 'block', icon: '■', label: 'Block' },
+            { id: 'portal_ship', icon: '◆', label: 'Ship' },
+            { id: 'portal_cube', icon: '◇', label: 'Cube' },
+            { id: 'finish', icon: '🏁', label: 'Finish' },
+            { id: 'delete', icon: '🗑️', label: 'Delete' }
         ];
 
-        // Undo/redo stacks
-        this.undoStack = [];
-        this.redoStack = [];
-        this.maxUndo = 50;
+        // History for undo
+        this.history = [];
+        this.historyIndex = -1;
+
+        // Animation
+        this.time = 0;
+        this.bgOffset = 0;
     }
 
     async init(data = {}) {
         this.levelManager.init();
 
-        // Load existing level or create new
-        if (data.levelId) {
-            this.level = this.levelManager.getLevel(data.levelId);
+        if (data.level) {
+            this.loadLevel(data.level);
         } else {
-            this.level = this.levelManager.createEmptyLevel();
+            this.newLevel();
         }
-
-        this.loadLevelObjects();
-
-        // Setup ground
-        this.ground = new Ground(this.game);
-        this.ground.setColors(this.level.groundColor, this.level.groundColor);
-
-        // Reset camera
-        this.camera.reset();
 
         this.isReady = true;
     }
 
-    loadLevelObjects() {
+    newLevel() {
+        this.levelName = 'Untitled Level';
         this.objects = [];
-        const groundY = CONFIG.CANVAS.HEIGHT - CONFIG.GROUND.HEIGHT;
+        this.currentLevelId = null;
+        this.cameraX = 0;
+        this.saveState();
+    }
 
-        for (const objData of this.level.objects) {
-            const obj = createGameObject(objData, groundY);
-            if (obj) {
-                obj.originalData = objData; // Keep reference to original data
-                this.objects.push(obj);
-            }
+    loadLevel(level) {
+        this.levelName = level.name;
+        this.currentLevelId = level.id;
+        this.objects = level.objects.map(obj => ({ ...obj }));
+        this.cameraX = 0;
+        this.saveState();
+    }
+
+    saveState() {
+        // Trim future history
+        this.history = this.history.slice(0, this.historyIndex + 1);
+        // Add current state
+        this.history.push(JSON.stringify(this.objects));
+        this.historyIndex++;
+        // Limit history size
+        if (this.history.length > 50) {
+            this.history.shift();
+            this.historyIndex--;
+        }
+    }
+
+    undo() {
+        if (this.historyIndex > 0) {
+            this.historyIndex--;
+            this.objects = JSON.parse(this.history[this.historyIndex]);
+        }
+    }
+
+    redo() {
+        if (this.historyIndex < this.history.length - 1) {
+            this.historyIndex++;
+            this.objects = JSON.parse(this.history[this.historyIndex]);
         }
     }
 
     update(dt) {
+        this.time += dt;
+        this.bgOffset += dt * 10;
+
         const input = this.game.inputManager;
         const mousePos = input.getPointerPosition();
 
-        // Check if in toolbar area
-        const inToolbar = mousePos.y < this.toolbarHeight;
-
-        // Update hover states
-        this.updateHoverState(mousePos);
-
-        // Handle toolbar clicks
-        if (inToolbar && input.justPressed) {
-            this.handleToolbarClick(mousePos);
-        }
-
-        // Handle canvas interactions
-        if (!inToolbar) {
-            this.handleCanvasInteraction(input, mousePos, dt);
-        }
-
-        // Keyboard shortcuts
-        this.handleKeyboardShortcuts(input);
-
-        // Update camera smoothly
-        this.camera.update(dt);
-    }
-
-    updateHoverState(mousePos) {
         this.hoveredButton = null;
 
-        // Check tool buttons
+        // Check keyboard shortcuts
+        if (input.isKeyJustPressed('KeyZ') && input.isKeyDown('ControlLeft')) {
+            this.undo();
+        }
+        if (input.isKeyJustPressed('KeyY') && input.isKeyDown('ControlLeft')) {
+            this.redo();
+        }
+        if (input.isKeyJustPressed('Escape')) {
+            this.game.sceneManager.switchTo(SCENES.MENU);
+            return;
+        }
+
+        // Toolbar buttons
+        const toolbarY = CONFIG.CANVAS.HEIGHT - 80;
         const toolStartX = 20;
-        const toolY = 60;
         const toolSize = 60;
         const toolGap = 10;
 
         for (let i = 0; i < this.tools.length; i++) {
             const x = toolStartX + i * (toolSize + toolGap);
-            if (this.isPointInRect(mousePos.x, mousePos.y, { x, y: toolY, width: toolSize, height: toolSize })) {
+            const rect = { x, y: toolbarY, width: toolSize, height: toolSize };
+            if (this.isPointInRect(mousePos.x, mousePos.y, rect)) {
                 this.hoveredButton = this.tools[i].id;
             }
         }
 
-        // Check action buttons
-        const actionsX = CONFIG.CANVAS.WIDTH - 250;
-        const btnWidth = 70;
-        const btnHeight = 40;
-        const btnGap = 10;
-
-        const actions = ['save', 'test', 'export', 'back'];
-        for (let i = 0; i < actions.length; i++) {
-            const x = actionsX + (i % 2) * (btnWidth + btnGap);
-            const y = 30 + Math.floor(i / 2) * (btnHeight + btnGap);
-            if (this.isPointInRect(mousePos.x, mousePos.y, { x, y, width: btnWidth, height: btnHeight })) {
-                this.hoveredButton = actions[i];
-            }
-        }
-    }
-
-    handleToolbarClick(mousePos) {
-        // Tool selection
-        const toolStartX = 20;
-        const toolY = 60;
-        const toolSize = 60;
-        const toolGap = 10;
-
-        for (let i = 0; i < this.tools.length; i++) {
-            const x = toolStartX + i * (toolSize + toolGap);
-            if (this.isPointInRect(mousePos.x, mousePos.y, { x, y: toolY, width: toolSize, height: toolSize })) {
-                this.selectedTool = this.tools[i].id;
-            }
-        }
-
         // Action buttons
-        if (this.hoveredButton === 'save') {
-            this.saveLevel();
-        } else if (this.hoveredButton === 'test') {
-            this.testLevel();
-        } else if (this.hoveredButton === 'export') {
-            this.exportLevel();
-        } else if (this.hoveredButton === 'back') {
-            this.game.sceneManager.switchTo(SCENES.MENU);
+        const actionBtns = this.getActionButtons();
+        for (const btn of actionBtns) {
+            if (this.isPointInRect(mousePos.x, mousePos.y, btn.rect)) {
+                this.hoveredButton = btn.id;
+            }
         }
-    }
 
-    handleCanvasInteraction(input, mousePos, dt) {
-        const worldPos = this.camera.screenToWorld(mousePos.x, mousePos.y);
-        const gridX = Math.floor(worldPos.x / this.gridSize) * this.gridSize;
-        const gridY = Math.floor(worldPos.y / this.gridSize) * this.gridSize;
+        // Back button
+        const backBtn = { x: 20, y: 20, width: 80, height: 50 };
+        if (this.isPointInRect(mousePos.x, mousePos.y, backBtn)) {
+            this.hoveredButton = 'back';
+        }
 
-        // Right click or shift+drag to pan
+        // Handle panning
         if (input.isKeyDown('ShiftLeft') || input.isKeyDown('ShiftRight')) {
             if (input.isPressed) {
-                if (this.isDragging) {
-                    const dx = mousePos.x - this.lastMouseX;
-                    this.camera.targetX -= dx;
-                    this.camera.x -= dx;
+                if (!this.isPanning) {
+                    this.isPanning = true;
+                    this.lastPanX = mousePos.x;
+                } else {
+                    const dx = mousePos.x - this.lastPanX;
+                    this.cameraX -= dx;
+                    this.cameraX = Math.max(0, this.cameraX);
+                    this.lastPanX = mousePos.x;
                 }
-                this.isDragging = true;
-                this.lastMouseX = mousePos.x;
             } else {
-                this.isDragging = false;
+                this.isPanning = false;
             }
-        } else if (input.justPressed) {
-            // Place/delete objects
-            if (this.selectedTool === 'delete') {
-                this.deleteObjectAt(worldPos.x, worldPos.y);
-            } else if (this.selectedTool === 'move') {
-                // TODO: Implement move
-            } else {
-                this.placeObject(gridX, this.selectedTool);
-            }
+        } else {
+            this.isPanning = false;
         }
 
-        // Scroll to pan
-        if (input.isKeyDown('ArrowRight') || input.isKeyDown('KeyD')) {
-            this.camera.targetX += 500 * dt;
-        }
-        if (input.isKeyDown('ArrowLeft') || input.isKeyDown('KeyA')) {
-            this.camera.targetX = Math.max(0, this.camera.targetX - 500 * dt);
+        // Handle clicks
+        if (input.justPressed) {
+            this.handleClick(mousePos);
         }
     }
 
-    handleKeyboardShortcuts(input) {
-        // Undo
-        if (input.isKeyDown('ControlLeft') && input.isKeyJustPressed('KeyZ')) {
-            this.undo();
+    getActionButtons() {
+        const rightX = CONFIG.CANVAS.WIDTH - 100;
+        const btnWidth = 80;
+        const btnHeight = 50;
+        const gap = 10;
+
+        return [
+            { id: 'save', label: '💾 Save', rect: { x: rightX, y: 20, width: btnWidth, height: btnHeight } },
+            { id: 'test', label: '▶ Test', rect: { x: rightX, y: 20 + btnHeight + gap, width: btnWidth, height: btnHeight } },
+            { id: 'export', label: '📤 Export', rect: { x: rightX, y: 20 + (btnHeight + gap) * 2, width: btnWidth, height: btnHeight } }
+        ];
+    }
+
+    handleClick(mousePos) {
+        // Check toolbar
+        if (this.hoveredButton && this.tools.find(t => t.id === this.hoveredButton)) {
+            this.selectedTool = this.hoveredButton;
+            return;
         }
 
-        // Redo
-        if (input.isKeyDown('ControlLeft') && input.isKeyJustPressed('KeyY')) {
-            this.redo();
-        }
-
-        // Test level
-        if (input.isKeyJustPressed('KeyT') && !input.isKeyDown('ControlLeft')) {
-            this.testLevel();
-        }
-
-        // Save
-        if (input.isKeyDown('ControlLeft') && input.isKeyJustPressed('KeyS')) {
+        // Check action buttons
+        if (this.hoveredButton === 'save') {
             this.saveLevel();
+            return;
+        }
+        if (this.hoveredButton === 'test') {
+            this.testLevel();
+            return;
+        }
+        if (this.hoveredButton === 'export') {
+            this.exportLevel();
+            return;
+        }
+        if (this.hoveredButton === 'back') {
+            this.game.sceneManager.switchTo(SCENES.MENU);
+            return;
         }
 
-        // Tool shortcuts
-        if (input.isKeyJustPressed('Digit1')) this.selectedTool = OBJECT_TYPES.SPIKE;
-        if (input.isKeyJustPressed('Digit2')) this.selectedTool = OBJECT_TYPES.BLOCK;
-        if (input.isKeyJustPressed('Digit3')) this.selectedTool = OBJECT_TYPES.PORTAL_SHIP;
-        if (input.isKeyJustPressed('Digit4')) this.selectedTool = OBJECT_TYPES.PORTAL_CUBE;
-        if (input.isKeyJustPressed('Digit5')) this.selectedTool = OBJECT_TYPES.FINISH;
-        if (input.isKeyJustPressed('KeyX')) this.selectedTool = 'delete';
-    }
+        // Check if clicking in editor area
+        if (mousePos.y > CONFIG.CANVAS.HEIGHT - 100) return;
+        if (mousePos.y < 100) return;
 
-    placeObject(x, type) {
-        // Check if object already exists at this position
-        const existing = this.level.objects.find(obj => obj.x === x && obj.type === type);
-        if (existing) return;
+        // Convert to world coordinates
+        const worldX = mousePos.x + this.cameraX;
+        const worldY = mousePos.y;
 
-        // Create object data
-        const objData = { type, x };
+        // Snap to grid
+        const snappedX = Math.floor(worldX / this.gridSize) * this.gridSize;
+        const snappedY = Math.floor(worldY / this.gridSize) * this.gridSize;
 
-        // Add to level
-        this.level.objects.push(objData);
+        if (this.selectedTool === 'delete') {
+            // Delete object at position
+            this.objects = this.objects.filter(obj => {
+                const objX = obj.x;
+                const objY = obj.y || (CONFIG.PLAYER.GROUND_Y - 50);
+                return !(Math.abs(objX - snappedX) < this.gridSize && Math.abs(objY - snappedY) < this.gridSize);
+            });
+            this.saveState();
+        } else {
+            // Check if object already exists at this position
+            const exists = this.objects.some(obj => {
+                const objY = obj.y || (CONFIG.PLAYER.GROUND_Y - 50);
+                return Math.abs(obj.x - snappedX) < 5 && Math.abs(objY - snappedY) < 5;
+            });
 
-        // Create visual object
-        const groundY = CONFIG.CANVAS.HEIGHT - CONFIG.GROUND.HEIGHT;
-        const obj = createGameObject(objData, groundY);
-        if (obj) {
-            obj.originalData = objData;
-            this.objects.push(obj);
-        }
-
-        // Save to undo stack
-        this.pushUndo({ action: 'add', data: objData });
-    }
-
-    deleteObjectAt(x, y) {
-        const groundY = CONFIG.CANVAS.HEIGHT - CONFIG.GROUND.HEIGHT;
-
-        for (let i = this.objects.length - 1; i >= 0; i--) {
-            const obj = this.objects[i];
-            if (this.isPointInRect(x, y, obj.getBounds())) {
-                // Remove from objects array
-                this.objects.splice(i, 1);
-
-                // Remove from level data
-                const dataIndex = this.level.objects.indexOf(obj.originalData);
-                if (dataIndex !== -1) {
-                    const deleted = this.level.objects.splice(dataIndex, 1)[0];
-                    this.pushUndo({ action: 'delete', data: deleted });
-                }
-
-                return;
+            if (!exists) {
+                // Add new object
+                const newObj = {
+                    type: this.selectedTool,
+                    x: snappedX,
+                    y: snappedY
+                };
+                this.objects.push(newObj);
+                this.saveState();
             }
         }
-    }
-
-    pushUndo(action) {
-        this.undoStack.push(action);
-        if (this.undoStack.length > this.maxUndo) {
-            this.undoStack.shift();
-        }
-        this.redoStack = []; // Clear redo on new action
-    }
-
-    undo() {
-        if (this.undoStack.length === 0) return;
-
-        const action = this.undoStack.pop();
-        this.redoStack.push(action);
-
-        if (action.action === 'add') {
-            // Remove the added object
-            const index = this.level.objects.indexOf(action.data);
-            if (index !== -1) {
-                this.level.objects.splice(index, 1);
-            }
-        } else if (action.action === 'delete') {
-            // Add back the deleted object
-            this.level.objects.push(action.data);
-        }
-
-        this.loadLevelObjects();
-    }
-
-    redo() {
-        if (this.redoStack.length === 0) return;
-
-        const action = this.redoStack.pop();
-        this.undoStack.push(action);
-
-        if (action.action === 'add') {
-            this.level.objects.push(action.data);
-        } else if (action.action === 'delete') {
-            const index = this.level.objects.indexOf(action.data);
-            if (index !== -1) {
-                this.level.objects.splice(index, 1);
-            }
-        }
-
-        this.loadLevelObjects();
     }
 
     saveLevel() {
-        if (this.level.id) {
-            this.levelManager.updateCustomLevel(this.level.id, this.level);
+        const level = {
+            id: this.currentLevelId || `custom_${Date.now()}`,
+            name: this.levelName,
+            author: 'Custom',
+            difficulty: 1,
+            bpm: 120,
+            isCustom: true,
+            objects: this.objects
+        };
+
+        if (this.currentLevelId) {
+            this.levelManager.updateLevel(level);
         } else {
-            this.level.id = this.levelManager.addCustomLevel(this.level);
+            this.currentLevelId = level.id;
+            this.levelManager.addLevel(level);
         }
 
-        console.log('Level saved!', this.level.id);
-        // TODO: Show save confirmation UI
+        console.log('Level saved!');
     }
 
     testLevel() {
-        // Save first
-        this.saveLevel();
+        const level = {
+            id: 'test_level',
+            name: this.levelName,
+            author: 'Test',
+            bpm: 120,
+            objects: this.objects
+        };
 
-        // Switch to play scene with this level
-        this.game.sceneManager.switchTo(SCENES.PLAY, { level: this.level });
+        this.game.sceneManager.switchTo(SCENES.PLAY, { level, fromEditor: true });
     }
 
     exportLevel() {
-        this.levelManager.exportLevel(this.level);
+        const level = {
+            name: this.levelName,
+            author: 'Custom',
+            bpm: 120,
+            objects: this.objects
+        };
+
+        const json = JSON.stringify(level, null, 2);
+        const blob = new Blob([json], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${this.levelName.replace(/\s+/g, '_')}.json`;
+        a.click();
+
+        URL.revokeObjectURL(url);
     }
 
     render(ctx) {
         // Background
-        ctx.fillStyle = this.level.backgroundColor || CONFIG.COLORS.DARK;
-        ctx.fillRect(0, 0, CONFIG.CANVAS.WIDTH, CONFIG.CANVAS.HEIGHT);
-
-        // Apply camera
-        this.camera.applyTransform(ctx);
-
-        // Grid
+        this.renderBackground(ctx);
         this.renderGrid(ctx);
 
+        // Editor grid
+        this.renderEditorGrid(ctx);
+
         // Ground
-        this.ground.render(ctx, this.camera.x);
+        ctx.save();
+        ctx.translate(-this.cameraX, 0);
+        this.ground.render(ctx, this.cameraX - 100, CONFIG.CANVAS.WIDTH + 200);
 
         // Objects
-        for (const obj of this.objects) {
-            obj.render(ctx, this.game.assetManager);
+        for (const objData of this.objects) {
+            const obj = createGameObject(objData);
+            if (obj && obj.x > this.cameraX - 100 && obj.x < this.cameraX + CONFIG.CANVAS.WIDTH + 100) {
+                obj.render(ctx);
+            }
         }
+        ctx.restore();
 
-        // Ghost preview of current tool
-        this.renderGhostPreview(ctx);
-
-        // Reset camera
-        this.camera.resetTransform(ctx);
-
-        // Toolbar
+        // UI
         this.renderToolbar(ctx);
+        this.renderTopBar(ctx);
+
+        // Instructions
+        ctx.font = '14px Outfit, sans-serif';
+        ctx.fillStyle = 'rgba(255,255,255,0.5)';
+        ctx.textAlign = 'center';
+        ctx.fillText('SHIFT + Drag to pan • ESC to exit', CONFIG.CANVAS.WIDTH / 2, CONFIG.CANVAS.HEIGHT - 10);
+    }
+
+    renderBackground(ctx) {
+        const gradient = ctx.createLinearGradient(0, 0, 0, CONFIG.CANVAS.HEIGHT);
+        gradient.addColorStop(0, CONFIG.COLORS.GD_PURPLE);
+        gradient.addColorStop(1, CONFIG.COLORS.GD_PURPLE_DARK);
+        ctx.fillStyle = gradient;
+        ctx.fillRect(0, 0, CONFIG.CANVAS.WIDTH, CONFIG.CANVAS.HEIGHT);
     }
 
     renderGrid(ctx) {
-        const startX = Math.floor(this.camera.x / this.gridSize) * this.gridSize;
-        const endX = startX + CONFIG.CANVAS.WIDTH + this.gridSize;
-        const groundY = CONFIG.CANVAS.HEIGHT - CONFIG.GROUND.HEIGHT;
+        const gridSize = 80;
+        const offset = this.bgOffset % gridSize;
 
-        ctx.strokeStyle = 'rgba(255,255,255,0.1)';
-        ctx.lineWidth = 1;
+        ctx.strokeStyle = 'rgba(74, 18, 89, 0.8)';
+        ctx.lineWidth = 3;
 
-        // Vertical lines
-        for (let x = startX; x < endX; x += this.gridSize) {
+        for (let x = -offset; x < CONFIG.CANVAS.WIDTH + gridSize; x += gridSize) {
             ctx.beginPath();
             ctx.moveTo(x, 0);
-            ctx.lineTo(x, groundY);
+            ctx.lineTo(x, CONFIG.CANVAS.HEIGHT);
             ctx.stroke();
         }
 
-        // Horizontal lines
-        for (let y = 0; y < groundY; y += this.gridSize) {
+        for (let y = 0; y < CONFIG.CANVAS.HEIGHT; y += gridSize) {
             ctx.beginPath();
-            ctx.moveTo(startX, y);
-            ctx.lineTo(endX, y);
+            ctx.moveTo(0, y);
+            ctx.lineTo(CONFIG.CANVAS.WIDTH, y);
             ctx.stroke();
         }
     }
 
-    renderGhostPreview(ctx) {
-        if (this.selectedTool === 'delete' || this.selectedTool === 'move') return;
+    renderEditorGrid(ctx) {
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+        ctx.lineWidth = 1;
 
-        const mousePos = this.game.inputManager.getPointerPosition();
-        if (mousePos.y < this.toolbarHeight) return;
+        const offsetX = -this.cameraX % this.gridSize;
 
-        const worldPos = this.camera.screenToWorld(mousePos.x, mousePos.y);
-        const gridX = Math.floor(worldPos.x / this.gridSize) * this.gridSize;
-        const groundY = CONFIG.CANVAS.HEIGHT - CONFIG.GROUND.HEIGHT;
+        for (let x = offsetX; x < CONFIG.CANVAS.WIDTH; x += this.gridSize) {
+            ctx.beginPath();
+            ctx.moveTo(x, 100);
+            ctx.lineTo(x, CONFIG.CANVAS.HEIGHT - 100);
+            ctx.stroke();
+        }
 
-        // Create temporary object for preview
-        const previewData = { type: this.selectedTool, x: gridX };
-        const preview = createGameObject(previewData, groundY);
+        for (let y = 100; y < CONFIG.CANVAS.HEIGHT - 100; y += this.gridSize) {
+            ctx.beginPath();
+            ctx.moveTo(0, y);
+            ctx.lineTo(CONFIG.CANVAS.WIDTH, y);
+            ctx.stroke();
+        }
+    }
 
-        if (preview) {
-            ctx.globalAlpha = 0.5;
-            preview.render(ctx, this.game.assetManager);
-            ctx.globalAlpha = 1;
+    renderTopBar(ctx) {
+        // Back button
+        this.renderGDButton(ctx, 20, 20, 80, 50, '←', '', this.hoveredButton === 'back');
+
+        // Level name
+        ctx.font = 'bold 28px Outfit, sans-serif';
+        ctx.fillStyle = '#ffffff';
+        ctx.strokeStyle = '#000000';
+        ctx.lineWidth = 4;
+        ctx.textAlign = 'center';
+        ctx.strokeText(this.levelName, CONFIG.CANVAS.WIDTH / 2, 50);
+        ctx.fillText(this.levelName, CONFIG.CANVAS.WIDTH / 2, 50);
+
+        // Action buttons
+        const actionBtns = this.getActionButtons();
+        for (const btn of actionBtns) {
+            this.renderGDButton(ctx, btn.rect.x, btn.rect.y, btn.rect.width, btn.rect.height,
+                btn.label.split(' ')[0], btn.label.split(' ')[1], this.hoveredButton === btn.id);
         }
     }
 
     renderToolbar(ctx) {
-        // Background
-        ctx.fillStyle = 'rgba(0,0,0,0.9)';
-        ctx.fillRect(0, 0, CONFIG.CANVAS.WIDTH, this.toolbarHeight);
-
-        // Border
-        ctx.strokeStyle = CONFIG.COLORS.PRIMARY;
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.moveTo(0, this.toolbarHeight);
-        ctx.lineTo(CONFIG.CANVAS.WIDTH, this.toolbarHeight);
-        ctx.stroke();
-
-        // Title
-        ctx.font = 'bold 20px Outfit, sans-serif';
-        ctx.fillStyle = '#ffffff';
-        ctx.textAlign = 'left';
-        ctx.fillText('LEVEL EDITOR', 20, 30);
-
-        // Tools
+        const toolbarY = CONFIG.CANVAS.HEIGHT - 80;
         const toolStartX = 20;
-        const toolY = 60;
         const toolSize = 60;
         const toolGap = 10;
 
@@ -459,63 +427,99 @@ export class EditorScene extends Scene {
             const isSelected = this.selectedTool === tool.id;
             const isHovered = this.hoveredButton === tool.id;
 
-            // Button background
-            ctx.fillStyle = isSelected ? tool.color + '60' : (isHovered ? tool.color + '30' : 'rgba(255,255,255,0.1)');
-            ctx.strokeStyle = isSelected ? tool.color : (isHovered ? tool.color : 'rgba(255,255,255,0.3)');
-            ctx.lineWidth = isSelected ? 3 : 1;
+            this.renderToolButton(ctx, x, toolbarY, toolSize, tool, isSelected, isHovered);
+        }
+    }
 
-            ctx.beginPath();
-            ctx.roundRect(x, toolY, toolSize, toolSize, 8);
-            ctx.fill();
-            ctx.stroke();
+    renderToolButton(ctx, x, y, size, tool, isSelected, isHovered) {
+        const scale = isHovered ? 1.1 : 1;
+        const cx = x + size / 2;
+        const cy = y + size / 2;
 
-            // Icon
-            ctx.font = '24px sans-serif';
-            ctx.fillStyle = isSelected ? tool.color : '#ffffff';
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.fillText(tool.icon, x + toolSize / 2, toolY + toolSize / 2);
+        ctx.save();
+        ctx.translate(cx, cy);
+        ctx.scale(scale, scale);
+        ctx.translate(-cx, -cy);
+
+        // Shadow
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+        ctx.beginPath();
+        ctx.roundRect(x + 3, y + 3, size, size, 10);
+        ctx.fill();
+
+        // Button background
+        let gradient;
+        if (isSelected) {
+            gradient = ctx.createLinearGradient(x, y, x, y + size);
+            gradient.addColorStop(0, CONFIG.COLORS.GD_GREEN_LIGHT);
+            gradient.addColorStop(0.3, CONFIG.COLORS.GD_GREEN);
+            gradient.addColorStop(1, CONFIG.COLORS.GD_GREEN_DARK);
+        } else {
+            gradient = ctx.createLinearGradient(x, y, x, y + size);
+            gradient.addColorStop(0, CONFIG.COLORS.GD_PURPLE);
+            gradient.addColorStop(1, CONFIG.COLORS.GD_PURPLE_DARK);
         }
 
-        // Action buttons
-        const actionsX = CONFIG.CANVAS.WIDTH - 250;
-        const btnWidth = 70;
-        const btnHeight = 40;
-        const btnGap = 10;
+        ctx.fillStyle = gradient;
+        ctx.beginPath();
+        ctx.roundRect(x, y, size, size, 10);
+        ctx.fill();
 
-        const actions = [
-            { id: 'save', text: 'Save', color: CONFIG.COLORS.SUCCESS },
-            { id: 'test', text: 'Test', color: CONFIG.COLORS.PRIMARY },
-            { id: 'export', text: 'Export', color: CONFIG.COLORS.ACCENT },
-            { id: 'back', text: 'Back', color: CONFIG.COLORS.SECONDARY }
-        ];
+        // Border
+        ctx.strokeStyle = isSelected ? CONFIG.COLORS.GD_GREEN_LIGHT : 'rgba(255,255,255,0.3)';
+        ctx.lineWidth = 3;
+        ctx.stroke();
 
-        for (let i = 0; i < actions.length; i++) {
-            const action = actions[i];
-            const x = actionsX + (i % 2) * (btnWidth + btnGap);
-            const y = 30 + Math.floor(i / 2) * (btnHeight + btnGap);
-            const isHovered = this.hoveredButton === action.id;
+        // Icon
+        ctx.font = '28px sans-serif';
+        ctx.fillStyle = '#ffffff';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(tool.icon, cx, cy);
 
-            ctx.fillStyle = isHovered ? action.color + '60' : 'rgba(255,255,255,0.1)';
-            ctx.strokeStyle = action.color;
-            ctx.lineWidth = 2;
+        ctx.restore();
+    }
 
-            ctx.beginPath();
-            ctx.roundRect(x, y, btnWidth, btnHeight, 6);
-            ctx.fill();
-            ctx.stroke();
+    renderGDButton(ctx, x, y, width, height, icon, label, isHovered) {
+        const scale = isHovered ? 1.05 : 1;
+        const cx = x + width / 2;
+        const cy = y + height / 2;
 
-            ctx.font = '14px Outfit, sans-serif';
-            ctx.fillStyle = '#ffffff';
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.fillText(action.text, x + btnWidth / 2, y + btnHeight / 2);
+        ctx.save();
+        ctx.translate(cx, cy);
+        ctx.scale(scale, scale);
+        ctx.translate(-cx, -cy);
+
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+        ctx.beginPath();
+        ctx.roundRect(x + 3, y + 3, width, height, 10);
+        ctx.fill();
+
+        const gradient = ctx.createLinearGradient(x, y, x, y + height);
+        gradient.addColorStop(0, CONFIG.COLORS.GD_GREEN_LIGHT);
+        gradient.addColorStop(0.3, CONFIG.COLORS.GD_GREEN);
+        gradient.addColorStop(1, CONFIG.COLORS.GD_GREEN_DARK);
+
+        ctx.fillStyle = gradient;
+        ctx.beginPath();
+        ctx.roundRect(x, y, width, height, 10);
+        ctx.fill();
+
+        ctx.strokeStyle = '#000000';
+        ctx.lineWidth = 3;
+        ctx.stroke();
+
+        ctx.font = label ? '18px sans-serif' : 'bold 24px sans-serif';
+        ctx.fillStyle = '#ffffff';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(icon, cx, cy - (label ? 5 : 0));
+
+        if (label) {
+            ctx.font = 'bold 10px Outfit, sans-serif';
+            ctx.fillText(label, cx, cy + 12);
         }
 
-        // Instructions
-        ctx.font = '12px Outfit, sans-serif';
-        ctx.fillStyle = 'rgba(255,255,255,0.5)';
-        ctx.textAlign = 'right';
-        ctx.fillText('Click to place • Shift+Drag to pan • 1-5 for tools • X to delete', CONFIG.CANVAS.WIDTH - 20, this.toolbarHeight - 10);
+        ctx.restore();
     }
 }

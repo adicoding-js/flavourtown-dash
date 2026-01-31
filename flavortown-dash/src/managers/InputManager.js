@@ -137,9 +137,15 @@ export class InputManager {
     }
 
     screenToGame(x, y) {
+        // The canvas is scaled and the offset is in screen space
+        // We need to account for the canvas display size vs actual size
+        const rect = this.canvas.getBoundingClientRect();
+        const scaleX = this.canvas.width / rect.width;
+        const scaleY = this.canvas.height / rect.height;
+
         return {
-            x: (x - this.offsetX) / this.scale,
-            y: (y - this.offsetY) / this.scale
+            x: x * scaleX,
+            y: y * scaleY
         };
     }
 

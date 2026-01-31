@@ -1,6 +1,6 @@
 /**
  * Flavortown Dash - Settings Scene
- * Game settings and options
+ * GD-style settings menu
  */
 
 import { Scene } from './Scene.js';
@@ -10,21 +10,16 @@ export class SettingsScene extends Scene {
     constructor(game) {
         super(game);
 
-        // Settings values
         this.settings = {
-            masterVolume: 0.7,
-            musicVolume: 0.5,
-            sfxVolume: 0.8,
-            showFPS: false,
-            reducedMotion: false
+            masterVolume: CONFIG.AUDIO.MASTER_VOLUME,
+            musicVolume: CONFIG.AUDIO.MUSIC_VOLUME,
+            sfxVolume: CONFIG.AUDIO.SFX_VOLUME
         };
 
-        // UI state
-        this.hoveredItem = null;
-        this.draggingSlider = null;
-
-        // Animation
         this.time = 0;
+        this.bgOffset = 0;
+        this.hoveredButton = null;
+        this.draggingSlider = null;
     }
 
     async init(data = {}) {
@@ -34,24 +29,19 @@ export class SettingsScene extends Scene {
     }
 
     loadSettings() {
-        try {
-            const saved = localStorage.getItem(CONFIG.STORAGE.SETTINGS);
-            if (saved) {
-                this.settings = { ...this.settings, ...JSON.parse(saved) };
-            }
-        } catch (e) {
-            console.warn('Failed to load settings');
+        const saved = localStorage.getItem(CONFIG.STORAGE.SETTINGS);
+        if (saved) {
+            try {
+                const data = JSON.parse(saved);
+                this.settings = { ...this.settings, ...data };
+            } catch (e) { }
         }
     }
 
     saveSettings() {
-        try {
-            localStorage.setItem(CONFIG.STORAGE.SETTINGS, JSON.stringify(this.settings));
-        } catch (e) {
-            console.warn('Failed to save settings');
-        }
+        localStorage.setItem(CONFIG.STORAGE.SETTINGS, JSON.stringify(this.settings));
 
-        // Apply audio settings
+        // Apply to audio manager
         this.game.audioManager.setMasterVolume(this.settings.masterVolume);
         this.game.audioManager.setMusicVolume(this.settings.musicVolume);
         this.game.audioManager.setSFXVolume(this.settings.sfxVolume);
@@ -59,34 +49,32 @@ export class SettingsScene extends Scene {
 
     update(dt) {
         this.time += dt;
+        this.bgOffset += dt * 20;
 
         const input = this.game.inputManager;
         const mousePos = input.getPointerPosition();
 
-        // Reset hover
-        this.hoveredItem = null;
+        this.hoveredButton = null;
 
         // Check back button
-        const backBtn = { x: CONFIG.CANVAS.WIDTH / 2 - 100, y: CONFIG.CANVAS.HEIGHT - 100, width: 200, height: 50 };
+        const backBtn = { x: 20, y: 20, width: 80, height: 50 };
         if (this.isPointInRect(mousePos.x, mousePos.y, backBtn)) {
-            this.hoveredItem = 'back';
+            this.hoveredButton = 'back';
         }
 
         // Check sliders
-        const sliders = this.getSliderRects();
-        for (const slider of sliders) {
-            if (this.isPointInRect(mousePos.x, mousePos.y, slider.rect)) {
-                this.hoveredItem = slider.id;
-            }
-        }
-
-        // Handle slider dragging
-        if (this.draggingSlider && input.isPressed) {
-            const slider = sliders.find(s => s.id === this.draggingSlider);
-            if (slider) {
-                const value = (mousePos.x - slider.rect.x) / slider.rect.width;
-                this.settings[this.draggingSlider] = Math.max(0, Math.min(1, value));
-                this.saveSettings();
+        const sliders = this.getSliderPositions();
+        if (input.isPressed) {
+            for (const slider of sliders) {
+                if (this.isPointInRect(mousePos.x, mousePos.y, {
+                    x: slider.x - 10, y: slider.y - 15,
+                    width: slider.width + 20, height: 30
+                })) {
+                    this.draggingSlider = slider.id;
+                    const value = Math.max(0, Math.min(1, (mousePos.x - slider.x) / slider.width));
+                    this.settings[slider.id] = value;
+                    this.saveSettings();
+                }
             }
         } else {
             this.draggingSlider = null;
@@ -94,109 +82,194 @@ export class SettingsScene extends Scene {
 
         // Handle clicks
         if (input.justPressed) {
-            if (this.hoveredItem === 'back') {
+            if (this.hoveredButton === 'back') {
                 this.game.sceneManager.switchTo(SCENES.MENU);
-            } else if (this.hoveredItem && this.hoveredItem.includes('Volume')) {
-                this.draggingSlider = this.hoveredItem;
             }
         }
     }
 
-    getSliderRects() {
-        const sliderWidth = 300;
-        const sliderHeight = 20;
-        const startY = 200;
-        const gap = 80;
+    getSliderPositions() {
         const centerX = CONFIG.CANVAS.WIDTH / 2;
+        const startY = 220;
+        const gap = 100;
+        const sliderWidth = 400;
 
         return [
-            {
-                id: 'masterVolume',
-                label: 'Master Volume',
-                rect: { x: centerX - sliderWidth / 2, y: startY, width: sliderWidth, height: sliderHeight }
-            },
-            {
-                id: 'musicVolume',
-                label: 'Music Volume',
-                rect: { x: centerX - sliderWidth / 2, y: startY + gap, width: sliderWidth, height: sliderHeight }
-            },
-            {
-                id: 'sfxVolume',
-                label: 'SFX Volume',
-                rect: { x: centerX - sliderWidth / 2, y: startY + gap * 2, width: sliderWidth, height: sliderHeight }
-            }
+            { id: 'masterVolume', label: 'MASTER VOLUME', x: centerX - sliderWidth / 2, y: startY, width: sliderWidth },
+            { id: 'musicVolume', label: 'MUSIC VOLUME', x: centerX - sliderWidth / 2, y: startY + gap, width: sliderWidth },
+            { id: 'sfxVolume', label: 'SFX VOLUME', x: centerX - sliderWidth / 2, y: startY + gap * 2, width: sliderWidth }
         ];
     }
 
     render(ctx) {
-        // Background
-        ctx.fillStyle = CONFIG.COLORS.DARK;
-        ctx.fillRect(0, 0, CONFIG.CANVAS.WIDTH, CONFIG.CANVAS.HEIGHT);
+        // Purple background
+        this.renderBackground(ctx);
+        this.renderGrid(ctx);
 
         // Title
-        this.drawText(ctx, 'SETTINGS', CONFIG.CANVAS.WIDTH / 2, 80, {
-            font: 'bold 48px Outfit, sans-serif',
-            color: CONFIG.COLORS.ACCENT
-        });
+        this.renderTitle(ctx, 'SETTINGS', CONFIG.CANVAS.WIDTH / 2, 80);
+
+        // Back button
+        this.renderGDButton(ctx, 20, 20, 80, 50, '←', '', this.hoveredButton === 'back');
 
         // Sliders
-        const sliders = this.getSliderRects();
+        const sliders = this.getSliderPositions();
         for (const slider of sliders) {
             this.renderSlider(ctx, slider);
         }
 
-        // Back button
-        this.drawButton(ctx, '← BACK', CONFIG.CANVAS.WIDTH / 2, CONFIG.CANVAS.HEIGHT - 75,
-            200, 50, this.hoveredItem === 'back', { color: CONFIG.COLORS.SECONDARY });
-
-        // Credits
-        ctx.font = '16px Outfit, sans-serif';
-        ctx.fillStyle = 'rgba(255,255,255,0.4)';
+        // Footer
+        ctx.font = '14px Outfit, sans-serif';
+        ctx.fillStyle = 'rgba(255,255,255,0.5)';
         ctx.textAlign = 'center';
-        ctx.fillText('Flavortown Dash v1.0', CONFIG.CANVAS.WIDTH / 2, CONFIG.CANVAS.HEIGHT - 30);
+        ctx.fillText('Settings are saved automatically', CONFIG.CANVAS.WIDTH / 2, CONFIG.CANVAS.HEIGHT - 40);
     }
 
-    renderSlider(ctx, slider) {
-        const { id, label, rect } = slider;
-        const value = this.settings[id];
-        const isHovered = this.hoveredItem === id || this.draggingSlider === id;
+    renderBackground(ctx) {
+        const gradient = ctx.createLinearGradient(0, 0, 0, CONFIG.CANVAS.HEIGHT);
+        gradient.addColorStop(0, CONFIG.COLORS.GD_PURPLE);
+        gradient.addColorStop(1, CONFIG.COLORS.GD_PURPLE_DARK);
+        ctx.fillStyle = gradient;
+        ctx.fillRect(0, 0, CONFIG.CANVAS.WIDTH, CONFIG.CANVAS.HEIGHT);
+    }
 
-        // Label
-        ctx.font = '20px Outfit, sans-serif';
-        ctx.fillStyle = '#ffffff';
-        ctx.textAlign = 'center';
-        ctx.fillText(label, rect.x + rect.width / 2, rect.y - 20);
+    renderGrid(ctx) {
+        const gridSize = 80;
+        const offset = this.bgOffset % gridSize;
 
-        // Slider track
-        ctx.fillStyle = 'rgba(255,255,255,0.2)';
-        ctx.beginPath();
-        ctx.roundRect(rect.x, rect.y, rect.width, rect.height, rect.height / 2);
-        ctx.fill();
+        ctx.strokeStyle = 'rgba(74, 18, 89, 0.8)';
+        ctx.lineWidth = 3;
 
-        // Slider fill
-        const color = isHovered ? CONFIG.COLORS.PRIMARY : CONFIG.COLORS.ACCENT;
-        ctx.fillStyle = color;
-        ctx.beginPath();
-        ctx.roundRect(rect.x, rect.y, rect.width * value, rect.height, rect.height / 2);
-        ctx.fill();
-
-        // Slider handle
-        const handleX = rect.x + rect.width * value;
-        ctx.fillStyle = '#ffffff';
-        ctx.beginPath();
-        ctx.arc(handleX, rect.y + rect.height / 2, rect.height / 2 + 5, 0, Math.PI * 2);
-        ctx.fill();
-
-        if (isHovered) {
-            ctx.strokeStyle = color;
-            ctx.lineWidth = 3;
+        for (let x = -offset; x < CONFIG.CANVAS.WIDTH + gridSize; x += gridSize) {
+            ctx.beginPath();
+            ctx.moveTo(x, 0);
+            ctx.lineTo(x, CONFIG.CANVAS.HEIGHT);
             ctx.stroke();
         }
 
-        // Value text
-        ctx.font = '16px Outfit, sans-serif';
-        ctx.fillStyle = 'rgba(255,255,255,0.7)';
+        for (let y = 0; y < CONFIG.CANVAS.HEIGHT; y += gridSize) {
+            ctx.beginPath();
+            ctx.moveTo(0, y);
+            ctx.lineTo(CONFIG.CANVAS.WIDTH, y);
+            ctx.stroke();
+        }
+    }
+
+    renderTitle(ctx, text, x, y) {
+        ctx.font = 'bold 48px Outfit, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+
+        ctx.strokeStyle = '#000000';
+        ctx.lineWidth = 6;
+        ctx.strokeText(text, x, y);
+
+        const gradient = ctx.createLinearGradient(x - 150, y - 30, x + 150, y + 30);
+        gradient.addColorStop(0, CONFIG.COLORS.GD_GREEN_LIGHT);
+        gradient.addColorStop(0.5, CONFIG.COLORS.GD_GREEN);
+        gradient.addColorStop(1, CONFIG.COLORS.GD_GREEN_DARK);
+        ctx.fillStyle = gradient;
+        ctx.fillText(text, x, y);
+    }
+
+    renderGDButton(ctx, x, y, width, height, icon, label, isHovered) {
+        const scale = isHovered ? 1.05 : 1;
+        const cx = x + width / 2;
+        const cy = y + height / 2;
+
+        ctx.save();
+        ctx.translate(cx, cy);
+        ctx.scale(scale, scale);
+        ctx.translate(-cx, -cy);
+
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+        ctx.beginPath();
+        ctx.roundRect(x + 3, y + 3, width, height, 10);
+        ctx.fill();
+
+        const gradient = ctx.createLinearGradient(x, y, x, y + height);
+        gradient.addColorStop(0, CONFIG.COLORS.GD_GREEN_LIGHT);
+        gradient.addColorStop(0.3, CONFIG.COLORS.GD_GREEN);
+        gradient.addColorStop(1, CONFIG.COLORS.GD_GREEN_DARK);
+
+        ctx.fillStyle = gradient;
+        ctx.beginPath();
+        ctx.roundRect(x, y, width, height, 10);
+        ctx.fill();
+
+        ctx.strokeStyle = '#000000';
+        ctx.lineWidth = 3;
+        ctx.stroke();
+
+        ctx.font = 'bold 24px sans-serif';
+        ctx.fillStyle = '#ffffff';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(icon, cx, cy);
+
+        ctx.restore();
+    }
+
+    renderSlider(ctx, slider) {
+        const value = this.settings[slider.id];
+        const x = slider.x;
+        const y = slider.y;
+        const width = slider.width;
+
+        // Label
+        ctx.font = 'bold 20px Outfit, sans-serif';
+        ctx.fillStyle = '#ffffff';
+        ctx.textAlign = 'left';
+        ctx.fillText(slider.label, x, y - 30);
+
+        // Value percentage
         ctx.textAlign = 'right';
-        ctx.fillText(Math.round(value * 100) + '%', rect.x + rect.width + 50, rect.y + rect.height / 2 + 5);
+        ctx.fillStyle = CONFIG.COLORS.GD_YELLOW;
+        ctx.fillText(`${Math.round(value * 100)}%`, x + width, y - 30);
+
+        // Track background
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+        ctx.beginPath();
+        ctx.roundRect(x, y - 8, width, 16, 8);
+        ctx.fill();
+
+        // Track border
+        ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        // Filled portion
+        const gradient = ctx.createLinearGradient(x, y, x + width * value, y);
+        gradient.addColorStop(0, CONFIG.COLORS.GD_GREEN_DARK);
+        gradient.addColorStop(1, CONFIG.COLORS.GD_GREEN);
+
+        ctx.fillStyle = gradient;
+        ctx.beginPath();
+        ctx.roundRect(x, y - 8, width * value, 16, 8);
+        ctx.fill();
+
+        // Handle/thumb
+        const thumbX = x + width * value;
+
+        // Thumb shadow
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+        ctx.beginPath();
+        ctx.arc(thumbX + 2, y + 2, 14, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Thumb
+        const thumbGradient = ctx.createRadialGradient(thumbX - 4, y - 4, 0, thumbX, y, 14);
+        thumbGradient.addColorStop(0, CONFIG.COLORS.GD_GREEN_LIGHT);
+        thumbGradient.addColorStop(1, CONFIG.COLORS.GD_GREEN);
+
+        ctx.fillStyle = thumbGradient;
+        ctx.beginPath();
+        ctx.arc(thumbX, y, 14, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Thumb border
+        ctx.strokeStyle = '#000000';
+        ctx.lineWidth = 3;
+        ctx.stroke();
     }
 }

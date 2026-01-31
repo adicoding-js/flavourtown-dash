@@ -43,7 +43,7 @@ export const CONFIG = {
         PORTAL: { WIDTH: 80, HEIGHT: 150 }
     },
 
-    // Colors - Modern Geometry Dash style
+    // Colors - Geometry Dash style
     COLORS: {
         PRIMARY: '#00d4ff',
         SECONDARY: '#ff0080',
@@ -54,7 +54,16 @@ export const CONFIG = {
         DARKER: '#070714',
         LIGHT: '#ffffff',
         GROUND: '#1a1a3e',
-        GROUND_TOP: '#2d2d5a'
+        GROUND_TOP: '#2d2d5a',
+        // GD Theme Colors
+        GD_PURPLE: '#8b2f9e',
+        GD_PURPLE_DARK: '#4a1259',
+        GD_PURPLE_DARKER: '#2a0a35',
+        GD_GREEN: '#7dce3c',
+        GD_GREEN_DARK: '#3a6b14',
+        GD_GREEN_LIGHT: '#a8e86c',
+        GD_YELLOW: '#f7d948',
+        GD_ORANGE: '#ff8c00'
     },
 
     // Audio

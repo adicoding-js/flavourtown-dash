@@ -1,6 +1,6 @@
 /**
  * Flavortown Dash - Menu Scene
- * Main menu with animated background
+ * Geometry Dash style main menu
  */
 
 import { Scene } from './Scene.js';
@@ -12,43 +12,33 @@ export class MenuScene extends Scene {
 
         // Animation
         this.time = 0;
-        this.particles = [];
-
-        // Buttons
-        this.buttons = [];
-        this.hoveredButton = null;
-
-        // Background animation
         this.bgOffset = 0;
 
         // Title animation
-        this.titleScale = 1;
         this.titleBounce = 0;
+
+        // Buttons
+        this.hoveredButton = null;
+
+        // Sprite modal
+        this.showSpriteModal = false;
+        this.selectedSprite = 'default';
+        this.sprites = ['default', 'fire', 'ice', 'gold', 'neon'];
+
+        // Social links - placeholders for custom icons
+        // Set iconPath to your custom image path once uploaded
+        this.socials = [
+            { id: 'github', icon: '🐙', iconPath: null, url: 'https://github.com/adicoding-js' },
+            { id: 'slack', icon: '💬', iconPath: null, url: 'https://slack.com' }
+        ];
     }
 
     async init(data = {}) {
-        // Initialize floating particles
-        for (let i = 0; i < 30; i++) {
-            this.particles.push({
-                x: Math.random() * CONFIG.CANVAS.WIDTH,
-                y: Math.random() * CONFIG.CANVAS.HEIGHT,
-                size: Math.random() * 4 + 2,
-                speed: Math.random() * 30 + 10,
-                opacity: Math.random() * 0.5 + 0.2
-            });
+        // Load saved sprite preference
+        const saved = localStorage.getItem('flavortown_sprite');
+        if (saved) {
+            this.selectedSprite = saved;
         }
-
-        // Define buttons
-        const centerX = CONFIG.CANVAS.WIDTH / 2;
-        const startY = 350;
-        const spacing = 80;
-
-        this.buttons = [
-            { id: 'play', text: '▶  PLAY', x: centerX, y: startY, width: 280, height: 60, color: CONFIG.COLORS.PRIMARY },
-            { id: 'editor', text: '🔧  EDITOR', x: centerX, y: startY + spacing, width: 280, height: 60, color: CONFIG.COLORS.SECONDARY },
-            { id: 'settings', text: '⚙  SETTINGS', x: centerX, y: startY + spacing * 2, width: 280, height: 60, color: CONFIG.COLORS.ACCENT }
-        ];
-
         this.isReady = true;
     }
 
@@ -64,103 +54,191 @@ export class MenuScene extends Scene {
 
         // Update title bounce
         this.titleBounce = Math.sin(this.time * 3) * 5;
-        this.titleScale = 1 + Math.sin(this.time * 2) * 0.02;
 
-        // Update background
-        this.bgOffset += dt * 30;
-
-        // Update particles
-        for (const p of this.particles) {
-            p.y -= p.speed * dt;
-            if (p.y < -10) {
-                p.y = CONFIG.CANVAS.HEIGHT + 10;
-                p.x = Math.random() * CONFIG.CANVAS.WIDTH;
-            }
-        }
+        // Update background scroll
+        this.bgOffset += dt * 20;
 
         // Check button hover
         const input = this.game.inputManager;
         const mousePos = input.getPointerPosition();
 
         this.hoveredButton = null;
-        for (const btn of this.buttons) {
-            const rect = { x: btn.x - btn.width / 2, y: btn.y - btn.height / 2, width: btn.width, height: btn.height };
-            if (this.isPointInRect(mousePos.x, mousePos.y, rect)) {
+
+        if (this.showSpriteModal) {
+            this.updateSpriteModal(mousePos, input);
+            return;
+        }
+
+        // Check main buttons
+        const buttons = this.getButtonPositions();
+        for (const btn of buttons) {
+            if (this.isPointInRect(mousePos.x, mousePos.y, btn.rect)) {
                 this.hoveredButton = btn.id;
             }
         }
 
-        // Check button click
-        if (input.justPressed) {
-            if (this.hoveredButton === 'play') {
-                this.game.sceneManager.switchTo(SCENES.LEVEL_SELECT);
-            } else if (this.hoveredButton === 'editor') {
-                this.game.sceneManager.switchTo(SCENES.EDITOR);
-            } else if (this.hoveredButton === 'settings') {
-                this.game.sceneManager.switchTo(SCENES.SETTINGS);
+        // Check social icons
+        const socialY = CONFIG.CANVAS.HEIGHT - 50;
+        const socialStartX = 40;
+        const socialSize = 40;
+        const socialGap = 55;
+
+        for (let i = 0; i < this.socials.length; i++) {
+            const x = socialStartX + i * socialGap;
+            if (this.isPointInRect(mousePos.x, mousePos.y, { x: x - socialSize / 2, y: socialY - socialSize / 2, width: socialSize, height: socialSize })) {
+                this.hoveredButton = this.socials[i].id;
             }
+        }
+
+        // Handle clicks
+        if (input.justPressed) {
+            this.handleClick();
+        }
+    }
+
+    updateSpriteModal(mousePos, input) {
+        // Check sprite options
+        const modalX = CONFIG.CANVAS.WIDTH / 2 - 200;
+        const modalY = CONFIG.CANVAS.HEIGHT / 2 - 150;
+        const optionSize = 60;
+        const gap = 20;
+
+        for (let i = 0; i < this.sprites.length; i++) {
+            const x = modalX + 40 + i * (optionSize + gap);
+            const y = modalY + 100;
+            if (this.isPointInRect(mousePos.x, mousePos.y, { x, y, width: optionSize, height: optionSize })) {
+                this.hoveredButton = `sprite_${this.sprites[i]}`;
+            }
+        }
+
+        // Close button
+        const closeBtn = { x: modalX + 150, y: modalY + 220, width: 100, height: 40 };
+        if (this.isPointInRect(mousePos.x, mousePos.y, closeBtn)) {
+            this.hoveredButton = 'close_modal';
+        }
+
+        // Handle clicks
+        if (input.justPressed) {
+            if (this.hoveredButton?.startsWith('sprite_')) {
+                this.selectedSprite = this.hoveredButton.replace('sprite_', '');
+                localStorage.setItem('flavortown_sprite', this.selectedSprite);
+            } else if (this.hoveredButton === 'close_modal') {
+                this.showSpriteModal = false;
+            }
+        }
+
+        // ESC to close
+        if (input.isKeyJustPressed('Escape')) {
+            this.showSpriteModal = false;
+        }
+    }
+
+    getButtonPositions() {
+        const centerX = CONFIG.CANVAS.WIDTH / 2;
+        const centerY = CONFIG.CANVAS.HEIGHT / 2;
+
+        return [
+            // Main Play button (center)
+            {
+                id: 'play',
+                rect: { x: centerX - 80, y: centerY - 60, width: 160, height: 160 },
+                icon: '▶',
+                label: 'PLAY',
+                size: 'large'
+            },
+            // Cube sprite customizer (left of play)
+            {
+                id: 'sprite',
+                rect: { x: centerX - 200, y: centerY - 40, width: 80, height: 80 },
+                icon: '🎨',
+                label: '',
+                size: 'medium'
+            },
+            // Editor button (left bottom)
+            {
+                id: 'editor',
+                rect: { x: centerX - 200, y: centerY + 60, width: 80, height: 80 },
+                icon: '🛠️',
+                label: '',
+                size: 'medium'
+            },
+            // Settings (bottom center)
+            {
+                id: 'settings',
+                rect: { x: centerX - 80, y: CONFIG.CANVAS.HEIGHT - 100, width: 160, height: 50 },
+                icon: '⚙',
+                label: 'SETTINGS',
+                size: 'small'
+            }
+        ];
+    }
+
+    handleClick() {
+        switch (this.hoveredButton) {
+            case 'play':
+                this.game.sceneManager.switchTo(SCENES.LEVEL_SELECT);
+                break;
+            case 'editor':
+                this.game.sceneManager.switchTo(SCENES.EDITOR);
+                break;
+            case 'settings':
+                this.game.sceneManager.switchTo(SCENES.SETTINGS);
+                break;
+            case 'sprite':
+                this.showSpriteModal = true;
+                break;
+            case 'github':
+                window.open('https://github.com/adicoding-js', '_blank');
+                break;
+            case 'slack':
+                window.open('https://slack.com', '_blank');
+                break;
         }
     }
 
     render(ctx) {
-        // Animated gradient background
-        const gradient = ctx.createLinearGradient(0, 0, 0, CONFIG.CANVAS.HEIGHT);
-        const hue1 = (this.time * 10) % 360;
-        const hue2 = (hue1 + 60) % 360;
-        gradient.addColorStop(0, `hsl(${hue1}, 50%, 8%)`);
-        gradient.addColorStop(1, `hsl(${hue2}, 50%, 5%)`);
-        ctx.fillStyle = gradient;
-        ctx.fillRect(0, 0, CONFIG.CANVAS.WIDTH, CONFIG.CANVAS.HEIGHT);
+        // Purple gradient background
+        this.renderBackground(ctx);
 
         // Grid pattern
         this.renderGrid(ctx);
 
-        // Floating particles
-        for (const p of this.particles) {
-            ctx.globalAlpha = p.opacity;
-            ctx.fillStyle = CONFIG.COLORS.PRIMARY;
-            ctx.beginPath();
-            ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
-            ctx.fill();
-        }
-        ctx.globalAlpha = 1;
+        // Diamond decoration (left side)
+        this.renderDiamond(ctx);
 
         // Title
         this.renderTitle(ctx);
 
-        // Buttons
-        for (const btn of this.buttons) {
-            this.drawButton(
-                ctx,
-                btn.text,
-                btn.x,
-                btn.y,
-                btn.width,
-                btn.height,
-                this.hoveredButton === btn.id,
-                { color: btn.color }
-            );
+        // Main buttons
+        this.renderButtons(ctx);
+
+        // Branding and socials
+        this.renderBranding(ctx);
+
+        // Sprite modal
+        if (this.showSpriteModal) {
+            this.renderSpriteModal(ctx);
         }
+    }
 
-        // Version / Credits
-        ctx.font = '14px Outfit, sans-serif';
-        ctx.fillStyle = 'rgba(255,255,255,0.3)';
-        ctx.textAlign = 'center';
-        ctx.fillText('v1.0 • Made with ❤️', CONFIG.CANVAS.WIDTH / 2, CONFIG.CANVAS.HEIGHT - 30);
-
-        // Controls hint
-        ctx.fillText('SPACE / CLICK / TAP to jump', CONFIG.CANVAS.WIDTH / 2, CONFIG.CANVAS.HEIGHT - 60);
+    renderBackground(ctx) {
+        // Purple gradient like GD
+        const gradient = ctx.createLinearGradient(0, 0, 0, CONFIG.CANVAS.HEIGHT);
+        gradient.addColorStop(0, CONFIG.COLORS.GD_PURPLE);
+        gradient.addColorStop(1, CONFIG.COLORS.GD_PURPLE_DARK);
+        ctx.fillStyle = gradient;
+        ctx.fillRect(0, 0, CONFIG.CANVAS.WIDTH, CONFIG.CANVAS.HEIGHT);
     }
 
     renderGrid(ctx) {
-        const gridSize = 50;
+        const gridSize = 80;
         const offset = this.bgOffset % gridSize;
 
-        ctx.strokeStyle = 'rgba(255,255,255,0.03)';
-        ctx.lineWidth = 1;
+        ctx.strokeStyle = 'rgba(74, 18, 89, 0.8)';
+        ctx.lineWidth = 3;
 
         // Vertical lines
-        for (let x = -offset; x < CONFIG.CANVAS.WIDTH; x += gridSize) {
+        for (let x = -offset; x < CONFIG.CANVAS.WIDTH + gridSize; x += gridSize) {
             ctx.beginPath();
             ctx.moveTo(x, 0);
             ctx.lineTo(x, CONFIG.CANVAS.HEIGHT);
@@ -176,38 +254,320 @@ export class MenuScene extends Scene {
         }
     }
 
+    renderDiamond(ctx) {
+        // White diamond/chevron decoration on left side (like GD)
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 4;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+
+        const startX = 30;
+        const midY = CONFIG.CANVAS.HEIGHT / 2 + 50;
+        const size = 120;
+
+        ctx.beginPath();
+        ctx.moveTo(startX, midY - size);
+        ctx.lineTo(startX + size, midY);
+        ctx.lineTo(startX, midY + size);
+        ctx.stroke();
+
+        // Inner line
+        ctx.beginPath();
+        ctx.moveTo(startX + 30, midY - size + 40);
+        ctx.lineTo(startX + size - 20, midY);
+        ctx.lineTo(startX + 30, midY + size - 40);
+        ctx.stroke();
+    }
+
     renderTitle(ctx) {
         const centerX = CONFIG.CANVAS.WIDTH / 2;
-        const titleY = 150 + this.titleBounce;
+        const titleY = 100 + this.titleBounce;
 
         ctx.save();
-        ctx.translate(centerX, titleY);
-        ctx.scale(this.titleScale, this.titleScale);
 
-        // Glow effect
-        ctx.shadowColor = CONFIG.COLORS.PRIMARY;
-        ctx.shadowBlur = 30;
-
-        // Main title
-        ctx.font = 'bold 72px Outfit, sans-serif';
+        // Title text with GD-style blocky look
+        ctx.font = 'bold 64px Outfit, sans-serif';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
 
-        // Gradient text
-        const textGradient = ctx.createLinearGradient(-200, 0, 200, 0);
-        textGradient.addColorStop(0, CONFIG.COLORS.PRIMARY);
-        textGradient.addColorStop(0.5, CONFIG.COLORS.ACCENT);
-        textGradient.addColorStop(1, CONFIG.COLORS.SECONDARY);
+        // Black outline/shadow
+        ctx.strokeStyle = '#000000';
+        ctx.lineWidth = 8;
+        ctx.strokeText('FLAVORTOWN', centerX + 3, titleY + 3);
+        ctx.strokeText('DASH', centerX + 3, titleY + 63);
 
-        ctx.fillStyle = textGradient;
-        ctx.fillText('FLAVORTOWN', 0, 0);
+        // Green gradient fill
+        const gradient = ctx.createLinearGradient(0, titleY - 40, 0, titleY + 100);
+        gradient.addColorStop(0, CONFIG.COLORS.GD_GREEN_LIGHT);
+        gradient.addColorStop(0.5, CONFIG.COLORS.GD_GREEN);
+        gradient.addColorStop(1, CONFIG.COLORS.GD_GREEN_DARK);
 
-        // Subtitle
-        ctx.shadowBlur = 15;
-        ctx.font = 'bold 36px Outfit, sans-serif';
-        ctx.fillStyle = '#ffffff';
-        ctx.fillText('DASH', 0, 55);
+        ctx.fillStyle = gradient;
+        ctx.lineWidth = 4;
+        ctx.strokeText('FLAVORTOWN', centerX, titleY);
+        ctx.fillText('FLAVORTOWN', centerX, titleY);
+        ctx.strokeText('DASH', centerX, titleY + 60);
+        ctx.fillText('DASH', centerX, titleY + 60);
 
         ctx.restore();
+    }
+
+    renderButtons(ctx) {
+        const buttons = this.getButtonPositions();
+
+        for (const btn of buttons) {
+            const isHovered = this.hoveredButton === btn.id;
+            this.renderGDButton(ctx, btn, isHovered);
+        }
+    }
+
+    renderGDButton(ctx, btn, isHovered) {
+        const { rect, icon, label, size } = btn;
+        const scale = isHovered ? 1.05 : 1;
+
+        ctx.save();
+
+        // Center and scale
+        const cx = rect.x + rect.width / 2;
+        const cy = rect.y + rect.height / 2;
+        ctx.translate(cx, cy);
+        ctx.scale(scale, scale);
+        ctx.translate(-cx, -cy);
+
+        // Button shape (rounded square with thick black outline)
+        const radius = size === 'large' ? 20 : size === 'medium' ? 15 : 10;
+
+        // Shadow
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+        ctx.beginPath();
+        ctx.roundRect(rect.x + 4, rect.y + 4, rect.width, rect.height, radius);
+        ctx.fill();
+
+        // Green gradient fill
+        const gradient = ctx.createLinearGradient(rect.x, rect.y, rect.x, rect.y + rect.height);
+        gradient.addColorStop(0, CONFIG.COLORS.GD_GREEN_LIGHT);
+        gradient.addColorStop(0.3, CONFIG.COLORS.GD_GREEN);
+        gradient.addColorStop(1, CONFIG.COLORS.GD_GREEN_DARK);
+
+        ctx.fillStyle = gradient;
+        ctx.beginPath();
+        ctx.roundRect(rect.x, rect.y, rect.width, rect.height, radius);
+        ctx.fill();
+
+        // Black outline
+        ctx.strokeStyle = '#000000';
+        ctx.lineWidth = 4;
+        ctx.stroke();
+
+        // Inner highlight
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.roundRect(rect.x + 4, rect.y + 4, rect.width - 8, rect.height / 2 - 4, radius - 2);
+        ctx.stroke();
+
+        // Icon
+        const fontSize = size === 'large' ? 64 : size === 'medium' ? 36 : 24;
+        ctx.font = `${fontSize}px sans-serif`;
+        ctx.fillStyle = '#ffffff';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+
+        // Icon shadow
+        ctx.fillStyle = 'rgba(0,0,0,0.3)';
+        ctx.fillText(icon, cx + 2, cy - (label ? 10 : 0) + 2);
+
+        ctx.fillStyle = '#ffffff';
+        ctx.fillText(icon, cx, cy - (label ? 10 : 0));
+
+        // Label (if any)
+        if (label) {
+            ctx.font = `bold ${size === 'large' ? 20 : 14}px Outfit, sans-serif`;
+            ctx.fillStyle = 'rgba(0,0,0,0.3)';
+            ctx.fillText(label, cx + 1, cy + (size === 'large' ? 50 : 25) + 1);
+            ctx.fillStyle = '#ffffff';
+            ctx.fillText(label, cx, cy + (size === 'large' ? 50 : 25));
+        }
+
+        ctx.restore();
+    }
+
+    renderBranding(ctx) {
+        const bottomY = CONFIG.CANVAS.HEIGHT - 30;
+
+        // Username with GitHub styling
+        ctx.font = 'bold 18px Outfit, sans-serif';
+        ctx.textAlign = 'left';
+
+        // GitHub-style username
+        ctx.fillStyle = CONFIG.COLORS.GD_ORANGE;
+        ctx.strokeStyle = '#000000';
+        ctx.lineWidth = 3;
+        ctx.strokeText('@adicoding-js', 20, bottomY - 35);
+        ctx.fillText('@adicoding-js', 20, bottomY - 35);
+
+        // Social icons
+        const socialStartX = 40;
+        const socialY = bottomY;
+        const iconSize = 35;
+
+        for (let i = 0; i < this.socials.length; i++) {
+            const social = this.socials[i];
+            const x = socialStartX + i * 55;
+            this.renderSocialIcon(ctx, x, socialY, social, iconSize);
+        }
+
+        // Controls hint (bottom right)
+        ctx.font = '14px Outfit, sans-serif';
+        ctx.fillStyle = 'rgba(255,255,255,0.5)';
+        ctx.textAlign = 'right';
+        ctx.fillText('SPACE / CLICK / TAP to jump', CONFIG.CANVAS.WIDTH - 20, CONFIG.CANVAS.HEIGHT - 20);
+    }
+
+    renderSocialIcon(ctx, x, y, social, size) {
+        const isHovered = this.hoveredButton === social.id;
+        const scale = isHovered ? 1.2 : 1;
+
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.scale(scale, scale);
+
+        // Circle background with GD style
+        const gradient = ctx.createRadialGradient(-5, -5, 0, 0, 0, size / 2);
+        if (isHovered) {
+            gradient.addColorStop(0, CONFIG.COLORS.GD_GREEN_LIGHT);
+            gradient.addColorStop(1, CONFIG.COLORS.GD_GREEN);
+        } else {
+            gradient.addColorStop(0, 'rgba(255,255,255,0.3)');
+            gradient.addColorStop(1, 'rgba(255,255,255,0.1)');
+        }
+
+        ctx.fillStyle = gradient;
+        ctx.beginPath();
+        ctx.arc(0, 0, size / 2, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Border
+        ctx.strokeStyle = '#000000';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        // If custom icon path is set, draw image placeholder
+        if (social.iconPath) {
+            // TODO: Load and draw custom icon image
+            // const img = this.game.assetManager.get(social.id + '_icon');
+            // ctx.drawImage(img, -size/3, -size/3, size*0.66, size*0.66);
+        }
+
+        // Fallback to emoji icon
+        ctx.font = `${size * 0.5}px sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillStyle = '#ffffff';
+        ctx.fillText(social.icon, 0, 0);
+
+        ctx.restore();
+    }
+
+    renderSpriteModal(ctx) {
+        // Overlay
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
+        ctx.fillRect(0, 0, CONFIG.CANVAS.WIDTH, CONFIG.CANVAS.HEIGHT);
+
+        // Modal box
+        const modalX = CONFIG.CANVAS.WIDTH / 2 - 200;
+        const modalY = CONFIG.CANVAS.HEIGHT / 2 - 150;
+        const modalWidth = 400;
+        const modalHeight = 300;
+
+        // Modal background
+        const gradient = ctx.createLinearGradient(modalX, modalY, modalX, modalY + modalHeight);
+        gradient.addColorStop(0, CONFIG.COLORS.GD_PURPLE);
+        gradient.addColorStop(1, CONFIG.COLORS.GD_PURPLE_DARK);
+
+        ctx.fillStyle = gradient;
+        ctx.beginPath();
+        ctx.roundRect(modalX, modalY, modalWidth, modalHeight, 20);
+        ctx.fill();
+
+        // Border
+        ctx.strokeStyle = CONFIG.COLORS.GD_GREEN;
+        ctx.lineWidth = 4;
+        ctx.stroke();
+
+        // Title
+        ctx.font = 'bold 28px Outfit, sans-serif';
+        ctx.fillStyle = '#ffffff';
+        ctx.textAlign = 'center';
+        ctx.strokeStyle = '#000000';
+        ctx.lineWidth = 4;
+        ctx.strokeText('SELECT SPRITE', modalX + modalWidth / 2, modalY + 50);
+        ctx.fillText('SELECT SPRITE', modalX + modalWidth / 2, modalY + 50);
+
+        // Sprite options
+        const optionSize = 60;
+        const gap = 20;
+        const startX = modalX + 40;
+        const optionY = modalY + 100;
+
+        const spriteColors = {
+            'default': CONFIG.COLORS.PRIMARY,
+            'fire': '#ff4400',
+            'ice': '#00ccff',
+            'gold': CONFIG.COLORS.GD_YELLOW,
+            'neon': '#ff00ff'
+        };
+
+        for (let i = 0; i < this.sprites.length; i++) {
+            const sprite = this.sprites[i];
+            const x = startX + i * (optionSize + gap);
+            const isSelected = this.selectedSprite === sprite;
+            const isHovered = this.hoveredButton === `sprite_${sprite}`;
+
+            // Option background
+            ctx.fillStyle = isSelected ? CONFIG.COLORS.GD_GREEN : (isHovered ? CONFIG.COLORS.GD_PURPLE : 'rgba(0,0,0,0.3)');
+            ctx.beginPath();
+            ctx.roundRect(x, optionY, optionSize, optionSize, 10);
+            ctx.fill();
+
+            // Border
+            ctx.strokeStyle = isSelected ? CONFIG.COLORS.GD_GREEN_LIGHT : 'rgba(255,255,255,0.3)';
+            ctx.lineWidth = 3;
+            ctx.stroke();
+
+            // Cube preview
+            ctx.fillStyle = spriteColors[sprite];
+            ctx.fillRect(x + 10, optionY + 10, optionSize - 20, optionSize - 20);
+
+            // Label
+            ctx.font = '10px Outfit, sans-serif';
+            ctx.fillStyle = '#ffffff';
+            ctx.textAlign = 'center';
+            ctx.fillText(sprite.toUpperCase(), x + optionSize / 2, optionY + optionSize + 15);
+        }
+
+        // Close button
+        const closeX = modalX + modalWidth / 2 - 50;
+        const closeY = modalY + modalHeight - 60;
+        const isCloseHovered = this.hoveredButton === 'close_modal';
+
+        const btnGradient = ctx.createLinearGradient(closeX, closeY, closeX, closeY + 40);
+        btnGradient.addColorStop(0, CONFIG.COLORS.GD_GREEN_LIGHT);
+        btnGradient.addColorStop(0.3, CONFIG.COLORS.GD_GREEN);
+        btnGradient.addColorStop(1, CONFIG.COLORS.GD_GREEN_DARK);
+
+        ctx.fillStyle = btnGradient;
+        ctx.beginPath();
+        ctx.roundRect(closeX, closeY, 100, 40, 10);
+        ctx.fill();
+
+        ctx.strokeStyle = '#000000';
+        ctx.lineWidth = 3;
+        ctx.stroke();
+
+        ctx.font = 'bold 16px Outfit, sans-serif';
+        ctx.fillStyle = '#ffffff';
+        ctx.textAlign = 'center';
+        ctx.fillText('DONE', closeX + 50, closeY + 25);
     }
 }

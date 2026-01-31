@@ -428,39 +428,43 @@ export class PlayScene extends Scene {
     }
 
     renderBackground(ctx) {
-        // Base color with pulse
-        const pulseAmount = this.bgPulse * 50;
-        ctx.fillStyle = this.bgColor;
+        // GD-style purple gradient background
+        const gradient = ctx.createLinearGradient(0, 0, 0, CONFIG.CANVAS.HEIGHT);
+        gradient.addColorStop(0, CONFIG.COLORS.GD_PURPLE);
+        gradient.addColorStop(1, CONFIG.COLORS.GD_PURPLE_DARK);
+        ctx.fillStyle = gradient;
         ctx.fillRect(0, 0, CONFIG.CANVAS.WIDTH, CONFIG.CANVAS.HEIGHT);
 
-        // Animated gradient overlay
-        const bassLevel = this.game.audioManager.getBassLevel();
-        if (bassLevel > 0.3) {
-            const gradient = ctx.createRadialGradient(
-                CONFIG.CANVAS.WIDTH / 2, CONFIG.CANVAS.HEIGHT / 2, 0,
-                CONFIG.CANVAS.WIDTH / 2, CONFIG.CANVAS.HEIGHT / 2, CONFIG.CANVAS.WIDTH
-            );
-            const color = this.currentLevel?.accentColor || CONFIG.COLORS.PRIMARY;
-            gradient.addColorStop(0, color + '20');
-            gradient.addColorStop(1, 'transparent');
-            ctx.fillStyle = gradient;
+        // Grid pattern
+        const gridSize = 80;
+        ctx.strokeStyle = 'rgba(74, 18, 89, 0.8)';
+        ctx.lineWidth = 2;
+        for (let x = -this.camera.x * 0.1 % gridSize; x < CONFIG.CANVAS.WIDTH; x += gridSize) {
+            ctx.beginPath();
+            ctx.moveTo(x, 0);
+            ctx.lineTo(x, CONFIG.CANVAS.HEIGHT);
+            ctx.stroke();
+        }
+        for (let y = 0; y < CONFIG.CANVAS.HEIGHT; y += gridSize) {
+            ctx.beginPath();
+            ctx.moveTo(0, y);
+            ctx.lineTo(CONFIG.CANVAS.WIDTH, y);
+            ctx.stroke();
+        }
+
+        // Beat pulse overlay
+        if (this.bgPulse > 0.01) {
+            ctx.fillStyle = `rgba(125, 206, 60, ${this.bgPulse * 0.3})`;
             ctx.fillRect(0, 0, CONFIG.CANVAS.WIDTH, CONFIG.CANVAS.HEIGHT);
         }
 
         // Background image parallax
         if (this.bgImage) {
             const parallax = this.camera.x * 0.3;
-            ctx.globalAlpha = 0.3 + this.bgPulse;
+            ctx.globalAlpha = 0.2 + this.bgPulse;
             ctx.drawImage(
                 this.bgImage,
                 -parallax % CONFIG.CANVAS.WIDTH,
-                0,
-                CONFIG.CANVAS.WIDTH,
-                CONFIG.CANVAS.HEIGHT
-            );
-            ctx.drawImage(
-                this.bgImage,
-                CONFIG.CANVAS.WIDTH - (parallax % CONFIG.CANVAS.WIDTH),
                 0,
                 CONFIG.CANVAS.WIDTH,
                 CONFIG.CANVAS.HEIGHT
@@ -510,25 +514,72 @@ export class PlayScene extends Scene {
 
     renderPauseMenu(ctx) {
         // Overlay
-        ctx.fillStyle = 'rgba(0,0,0,0.7)';
+        ctx.fillStyle = 'rgba(0,0,0,0.8)';
         ctx.fillRect(0, 0, CONFIG.CANVAS.WIDTH, CONFIG.CANVAS.HEIGHT);
 
-        // Title
-        this.drawText(ctx, 'PAUSED', CONFIG.CANVAS.WIDTH / 2, CONFIG.CANVAS.HEIGHT / 2 - 100, {
-            font: 'bold 48px Outfit, sans-serif',
-            color: '#ffffff'
-        });
+        // Title with GD style
+        ctx.font = 'bold 56px Outfit, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.strokeStyle = '#000000';
+        ctx.lineWidth = 6;
+        ctx.strokeText('PAUSED', CONFIG.CANVAS.WIDTH / 2, CONFIG.CANVAS.HEIGHT / 2 - 100);
 
-        // Buttons
+        const gradient = ctx.createLinearGradient(0, CONFIG.CANVAS.HEIGHT / 2 - 130, 0, CONFIG.CANVAS.HEIGHT / 2 - 70);
+        gradient.addColorStop(0, CONFIG.COLORS.GD_GREEN_LIGHT);
+        gradient.addColorStop(0.5, CONFIG.COLORS.GD_GREEN);
+        gradient.addColorStop(1, CONFIG.COLORS.GD_GREEN_DARK);
+        ctx.fillStyle = gradient;
+        ctx.fillText('PAUSED', CONFIG.CANVAS.WIDTH / 2, CONFIG.CANVAS.HEIGHT / 2 - 100);
+
+        // Buttons with GD style
         const centerX = CONFIG.CANVAS.WIDTH / 2;
         const centerY = CONFIG.CANVAS.HEIGHT / 2;
 
-        this.drawButton(ctx, 'RESUME', centerX, centerY, 200, 50,
-            this.hoveredButton === 'resume', { color: CONFIG.COLORS.PRIMARY });
-        this.drawButton(ctx, 'RESTART', centerX, centerY + 70, 200, 50,
-            this.hoveredButton === 'restart', { color: CONFIG.COLORS.ACCENT });
-        this.drawButton(ctx, 'MENU', centerX, centerY + 140, 200, 50,
-            this.hoveredButton === 'menu', { color: CONFIG.COLORS.SECONDARY });
+        this.renderGDButton(ctx, centerX - 100, centerY - 20, 200, 50, '▶', 'RESUME', this.hoveredButton === 'resume');
+        this.renderGDButton(ctx, centerX - 100, centerY + 50, 200, 50, '↻', 'RESTART', this.hoveredButton === 'restart');
+        this.renderGDButton(ctx, centerX - 100, centerY + 120, 200, 50, '←', 'MENU', this.hoveredButton === 'menu');
+    }
+
+    renderGDButton(ctx, x, y, width, height, icon, label, isHovered) {
+        const scale = isHovered ? 1.05 : 1;
+        const cx = x + width / 2;
+        const cy = y + height / 2;
+
+        ctx.save();
+        ctx.translate(cx, cy);
+        ctx.scale(scale, scale);
+        ctx.translate(-cx, -cy);
+
+        // Shadow
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+        ctx.beginPath();
+        ctx.roundRect(x + 3, y + 3, width, height, 10);
+        ctx.fill();
+
+        // Green gradient
+        const gradient = ctx.createLinearGradient(x, y, x, y + height);
+        gradient.addColorStop(0, CONFIG.COLORS.GD_GREEN_LIGHT);
+        gradient.addColorStop(0.3, CONFIG.COLORS.GD_GREEN);
+        gradient.addColorStop(1, CONFIG.COLORS.GD_GREEN_DARK);
+
+        ctx.fillStyle = gradient;
+        ctx.beginPath();
+        ctx.roundRect(x, y, width, height, 10);
+        ctx.fill();
+
+        // Black outline
+        ctx.strokeStyle = '#000000';
+        ctx.lineWidth = 3;
+        ctx.stroke();
+
+        // Icon and label
+        ctx.font = 'bold 20px sans-serif';
+        ctx.fillStyle = '#ffffff';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(`${icon}  ${label}`, cx, cy);
+
+        ctx.restore();
     }
 
     renderWinScreen(ctx) {
